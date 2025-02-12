@@ -30,8 +30,8 @@ from torch.utils.tensorboard import SummaryWriter
 
 
 from libml.randaugment import RandAugmentMC
-from libml.utils import save_pickle
-from libml.utils import train_one_epoch, eval_model
+from libml.utils_avg import save_pickle
+from libml.utils_avg import train_one_epoch, eval_model
 from libml.models.ema import ModelEMA
 
 
@@ -345,6 +345,24 @@ def main(args, brief_summary):
             p_target=None
             p_model=None
             
+    elif args.dataset_name == 'labelme':
+        from libml.cifar_data import CIFAR as dataset
+        from libml.cifar_l_u_paired_data import CIFAR_l_u_paired as paired_dataset
+
+        means = (112.4 / 255, 109.1 / 255, 98.6 / 255)  # Replace with LabelMe-specific values
+        stds = (68.4 / 255, 66.6 / 255, 68.5 / 255)    # Replace with LabelMe-specific values
+        args.resolution = 96  # Update based on the LabelMe dataset resolution
+        args.num_classes = 12  # Number of classes in LabelMe
+
+        if args.use_DA:
+            p_target = torch.tensor([0.1] * 12)
+            p_target = p_target.to(args.device)
+
+            p_model = None  # initialize p_model (ema of the model predictions on unlabeled set)
+        else:
+            p_target = None
+            p_model = None
+            
             
     else:
         raise NameError('Note implemented yet')
@@ -610,15 +628,23 @@ if __name__ == '__main__':
     args = parser.parse_args()
     
     cuda = torch.cuda.is_available()
-    
+    from torch.utils.data.dataloader import _SingleProcessDataLoaderIter
+
+    # Add the `next` method to `_SingleProcessDataLoaderIter` dynamically
+    if not hasattr(_SingleProcessDataLoaderIter, "next"):
+        _SingleProcessDataLoaderIter.next = lambda self: self.__next__()
+
+        
     if cuda:
         print('cuda available')
         device = torch.device('cuda')
         args.device = device
         torch.backends.cudnn.benchmark = True
     else:
-        raise ValueError('Not Using GPU')
-    #     device = "cpu"
+        # No error raised here, so CPU can be used
+        print('cuda not available, using CPU')
+        device = torch.device('cpu')
+        args.device = device
     
     logging.basicConfig(
         format="%(asctime)s - %(levelname)s - %(name)s -   %(message)s",
